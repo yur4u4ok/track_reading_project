@@ -2,6 +2,9 @@ from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
+from django.db.models import ExpressionWrapper, F, fields, Sum
+from django.db.models.functions import Coalesce
+
 from apps.users.models import UserModel as User
 from .models import BooksUsersReadModel
 from configs.celery import app
@@ -31,11 +34,13 @@ def update_reading_statistics():
 def get_total_reading_time(user, start_date):
     sessions = BooksUsersReadModel.objects.filter(user=user, start_reading__gte=start_date)
 
-    total_time = timedelta()
-    for session in sessions:
-        if session.end_reading:
-            total_time += session.end_reading - session.start_reading
-        else:
-            total_time += timezone.now() - session.start_reading
+    reading_time = ExpressionWrapper(
+        Coalesce(F('end_reading'), timezone.now()) - F('start_reading'),
+        output_field=fields.DurationField()
+    )
+
+    total_time = sessions.aggregate(
+        total_reading_time=Sum(reading_time)
+    )['total_reading_time'] or timedelta()
 
     return total_time.total_seconds()

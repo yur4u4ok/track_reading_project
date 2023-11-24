@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta
 from django.utils import timezone
 
+from django.db.models import Sum, ExpressionWrapper, fields, F
+from django.db.models.functions import Coalesce
+
 from rest_framework import status
 from rest_framework.generics import ListCreateAPIView, RetrieveAPIView, GenericAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -155,11 +158,13 @@ class GetGeneralTimeView(GenericAPIView):
         return BooksUsersReadModel.objects.filter(user=self.request.user)
 
     def get(self, *args, **kwargs):
-        total_time = timedelta()
-        for session in self.get_queryset():
-            if session.end_reading:
-                total_time += session.end_reading - session.start_reading
-            else:
-                total_time += timezone.now() - session.start_reading
+        reading_time = ExpressionWrapper(
+            Coalesce(F('end_reading'), timezone.now()) - F('start_reading'),
+            output_field=fields.DurationField()
+        )
+
+        total_time = self.get_queryset().aggregate(
+            total_reading_time=Sum(reading_time)
+        )['total_reading_time'] or timedelta()
 
         return Response({'general_time_reading': calculate_time(total_time.total_seconds())}, status.HTTP_200_OK)
